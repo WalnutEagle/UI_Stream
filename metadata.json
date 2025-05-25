@@ -1,0 +1,5 @@
+{
+  "name": "Autonomous Vehicle Dashboard",
+  "description": "A dashboard displaying telemetry and operational status for an autonomous vehicle system. Shows camera feeds, sensor data, system performance, and control outputs.",
+  "requestFramePermissions": []
+}
