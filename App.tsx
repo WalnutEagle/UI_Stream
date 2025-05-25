@@ -9,7 +9,10 @@ import { CurrentTime } from './components/CurrentTime';
 import { ImageView } from './components/ImageView';
 import { SteeringThrottleDisplay } from './components/SteeringThrottleDisplay';
 import { ModelIcon } from './components/ModelIcon';
-import { LightningBoltIcon } from './components/LightningBoltIcon'; // New Icon
+// EyeIcon and EyeSlashIcon are used within SteeringThrottleDisplay, not directly here.
+// Importing them ensures they are part of the dependency graph if needed.
+// import { EyeIcon } from './components/EyeIcon'; 
+// import { EyeSlashIcon } from './components/EyeSlashIcon';
 
 
 // Icons for buttons (simple SVGs)
@@ -41,7 +44,6 @@ const App: React.FC = () => {
     acceleration: { x: 0, y: 0, z: 0 },
     yawRate: 0,
   });
-  const [energyUsage, setEnergyUsage] = useState<number>(75.0); // New state for energy usage
 
   // UI State
   const [inferenceMode, setInferenceMode] = useState<InferenceMode>(InferenceMode.CLOUD);
@@ -52,7 +54,7 @@ const App: React.FC = () => {
   const [vehicleControls, setVehicleControls] = useState<VehicleControlState>({
     steeringAngle: 0,
     throttle: 0,
-    brake: 0,
+    brake: 0, // Brake is still in state, but not displayed in SteeringThrottleDisplay
   });
   
   const generateRandomWaypoints = useCallback(() => {
@@ -97,8 +99,6 @@ const App: React.FC = () => {
         throttle: Math.max(0, Math.min(100, Math.floor(Math.random() * 110 -5))), // Range 0 to 100 after clamping
         brake: Math.random() > 0.8 ? Math.floor(Math.random() * 60) : 0,
       });
-      
-      setEnergyUsage(parseFloat((Math.random() * (500 - 50) + 50).toFixed(1))); // Simulate energy usage 50W-500W
 
     }, 2000); // Update every 2 seconds
     return () => clearInterval(interval);
@@ -121,13 +121,7 @@ const App: React.FC = () => {
 
   const handleQuit = () => {
     console.log("Attempting to close window...");
-    // Note: window.close() may not work in all browser contexts due to security restrictions.
-    // It typically only works for windows opened by script.
-    if (window.opener) {
-        window.close();
-    } else {
-        alert("Unable to automatically close this tab. Please close it manually.");
-    }
+    window.close();
   };
 
   // Image sources
@@ -173,22 +167,12 @@ const App: React.FC = () => {
             onClick={toggleCameraView}
             variant="secondary"
             icon={<SwitchCameraIcon />}
-            aria-label={activeCameraView === 'front_rgb' ? 'Switch to Depth View' : 'Switch to RGB View'}
           >
             {activeCameraView === 'front_rgb' ? 'Switch to Depth View' : 'Switch to RGB View'}
           </StyledButton>
           
-          <DataDisplayCard title="Real World Car Implementation" className="flex-grow flex flex-col">
+          <DataDisplayCard title="Real World Car Implementation" className="flex-grow">
             <ImageView src={auxImageSrc} alt="Auxiliary camera feed" className="min-h-[200px]"/>
-            <div className="mt-3 pt-3 border-t border-gray-700">
-              <InfoPanelItem
-                label="Energy Usage"
-                value={energyUsage.toFixed(1)}
-                unit="W"
-                icon={<LightningBoltIcon className="w-5 h-5 text-yellow-400" />}
-                valueClassName="text-yellow-300"
-              />
-            </div>
           </DataDisplayCard>
           
           <StyledButton 
