@@ -12,6 +12,15 @@ export default defineConfig(({ mode }) => {
         alias: {
           '@': path.resolve(__dirname, '.'),
         }
+      },
+      server: {
+        proxy: {
+          '/api': {
+            target: 'https://run-coops-767192.apps.shift.nerc.mghpcc.org',
+            changeOrigin: true,
+            secure: true
+          }
+        }
       }
     };
 });

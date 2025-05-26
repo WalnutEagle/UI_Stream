@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { InferenceMode, Waypoint, VehicleSensorData, VehicleControlState } from './types';
 import { DataDisplayCard } from './components/DataDisplayCard';
 import { InfoPanelItem } from './components/InfoPanelItem';
@@ -25,14 +25,22 @@ const SwapCamerasIcon: React.FC<{ className?: string }> = ({ className }) => (
 );
 
 
-const WS_URL = "wss://run-coops-767192.apps.shift.nerc.mghpcc.org/api/ui_updates";
-const RECONNECT_DELAY = 5000; // 5 seconds
+// API configuration
+const API_HOST = import.meta.env.VITE_API_HOST || "run-coops-767192.apps.shift.nerc.mghpcc.org";
+const API_URL = `https://${API_HOST}/api/latest_car_data`;
+// Polling interval in milliseconds
+const POLLING_INTERVAL = 15; // 15 milliseconds
+
+// Connection configuration
+const MAX_RETRY_ATTEMPTS = 10;
+const RETRY_DELAY = 5000; // 5 seconds
+
 const PLACEHOLDER_IMAGE_SRC = "data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22800%22%20height%3D%22450%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20800%20450%22%3E%3Crect%20fill%3D%22%234A5568%22%20width%3D%22800%22%20height%3D%22450%22%2F%3E%3Ctext%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22sans-serif%22%20font-size%3D%2230%22%20dy%3D%2210.5%22%20font-weight%3D%22bold%22%20x%3D%2250%25%22%20y%3D%2250%25%22%20text-anchor%3D%22middle%22%3ENo%20Signal%3C%2Ftext%3E%3C%2Fsvg%3E";
 
 
-type WebSocketStatus = "Connecting" | "Connected" | "Disconnected" | "Error";
+type ConnectionStatus = "Connecting" | "Connected" | "Disconnected" | "Error";
 
-interface WebSocketMessage {
+interface HTTPMessage {
   predicted_waypoints: Array<{ X: number; Y: number }> | null;
   sensor_data: {
     gps_lat: number;
@@ -58,6 +66,7 @@ interface WebSocketMessage {
   data_transit_time_to_server_ms: number | null;
 }
 
+
 const App: React.FC = () => {
   // System Information State
   const [modelName] = useState<string>('GeminiDrive PilotNet v3.1');
@@ -81,9 +90,9 @@ const App: React.FC = () => {
   const [image2Src, setImage2Src] = useState<string>(PLACEHOLDER_IMAGE_SRC);
   const [displayDepthView, setDisplayDepthView] = useState<boolean>(false); // false = RGB (image1), true = Depth (image2)
   
-  const [webSocketStatus, setWebSocketStatus] = useState<WebSocketStatus>("Connecting");
-  const ws = useRef<WebSocket | null>(null);
-  const reconnectTimeoutId = useRef<number | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("Connecting");
+  const pollingIntervalId = useRef<number | null>(null);
+  const [retryAttempts, setRetryAttempts] = useState<number>(0);
 
   // Vehicle Control State
   const [vehicleControls, setVehicleControls] = useState<VehicleControlState>({
@@ -92,110 +101,131 @@ const App: React.FC = () => {
     brake: 0,
   });
 
-  const connectWebSocket = useCallback(() => {
-    if (reconnectTimeoutId.current) {
-      clearTimeout(reconnectTimeoutId.current);
-      reconnectTimeoutId.current = null;
-    }
+  // Message validation function
+  const isValidHTTPMessage = (data: any): data is HTTPMessage => {
+    return data &&
+      typeof data.sensor_data === 'object' &&
+      typeof data.inference_mode === 'string' &&
+      typeof data.vehicle_controls === 'object' &&
+      typeof data.sensor_data.gps_lat === 'number' &&
+      typeof data.sensor_data.gps_lon === 'number';
+  };
 
-    if (ws.current && ws.current.readyState !== WebSocket.CLOSED) {
-        console.log("WebSocket already open or connecting.");
-        return;
-    }
-    
-    setWebSocketStatus("Connecting");
-    console.log("Attempting to connect WebSocket...");
-    ws.current = new WebSocket(WS_URL);
+  const fetchData = async () => {
+    try {
+      const response = await fetch(API_URL, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        // Handle CORS
+        mode: 'cors',
+        credentials: 'same-origin'
+      });
 
-    ws.current.onopen = () => {
-      console.log("WebSocket Connected");
-      setWebSocketStatus("Connected");
-    };
-
-    ws.current.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data as string) as WebSocketMessage;
-
-        if (data.predicted_waypoints) {
-          setPredictedWaypoints(data.predicted_waypoints.map(wp => [wp.X, wp.Y]));
-        } else {
-          setPredictedWaypoints([]);
-        }
-
-        setSensorData({
-          gps: {
-            lat: data.sensor_data.gps_lat,
-            lon: data.sensor_data.gps_lon,
-            altitude: data.sensor_data.altitude,
-          },
-          velocity: data.sensor_data.velocity,
-          acceleration: {
-            x: data.sensor_data.accel_x,
-            y: data.sensor_data.accel_y,
-            z: 0, 
-          },
-          yawRate: data.sensor_data.yaw_rate,
-        });
-
-        const modeStr = data.inference_mode.toLowerCase();
-        if (modeStr === InferenceMode.LOCAL.toLowerCase()) {
-          setInferenceMode(InferenceMode.LOCAL);
-        } else if (modeStr === InferenceMode.CLOUD.toLowerCase()) {
-          setInferenceMode(InferenceMode.CLOUD);
-        }
-
-        setVehicleControls({
-          steeringAngle: data.vehicle_controls.steering * 45, 
-          throttle: data.vehicle_controls.throttle * 100, 
-          brake: 0, 
-        });
-
-        setImage1Src(data.image1_base64 ? `data:image/jpeg;base64,${data.image1_base64}` : PLACEHOLDER_IMAGE_SRC);
-        setImage2Src(data.image2_base64 ? `data:image/jpeg;base64,${data.image2_base64}` : PLACEHOLDER_IMAGE_SRC);
-
-        if (data.energy_used_wh !== null) {
-          setEnergyUsage(data.energy_used_wh);
-        }
-
-        if (data.data_transit_time_to_server_ms !== null) {
-          setServerCommTime(data.data_transit_time_to_server_ms);
-        }
-
-      } catch (error) {
-        console.error("Failed to parse WebSocket message or update state:", error);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-    };
 
-    ws.current.onerror = (error) => {
-      console.error("WebSocket Error:", error);
-      setWebSocketStatus("Error");
-    };
-
-    ws.current.onclose = () => {
-      console.log("WebSocket Disconnected");
-      if (webSocketStatus !== "Error") setWebSocketStatus("Disconnected"); 
+      const data = await response.json();
       
-      if (reconnectTimeoutId.current) {
-        clearTimeout(reconnectTimeoutId.current);
+      // Validate message format
+      if (!isValidHTTPMessage(data)) {
+        console.error("Invalid HTTP message format:", data);
+        return;
       }
-      console.log(`Attempting to reconnect in ${RECONNECT_DELAY / 1000} seconds...`);
-      reconnectTimeoutId.current = window.setTimeout(connectWebSocket, RECONNECT_DELAY);
-    };
-  }, [webSocketStatus]); 
+
+      // Update connection status to Connected on successful fetch
+      setConnectionStatus("Connected");
+      setRetryAttempts(0);
+
+      // Process the data same as before
+      if (data.predicted_waypoints) {
+        setPredictedWaypoints(data.predicted_waypoints.map(wp => [wp.X, wp.Y]));
+      } else {
+        setPredictedWaypoints([]);
+      }
+
+      setSensorData({
+        gps: {
+          lat: data.sensor_data.gps_lat,
+          lon: data.sensor_data.gps_lon,
+          altitude: data.sensor_data.altitude,
+        },
+        velocity: data.sensor_data.velocity,
+        acceleration: {
+          x: data.sensor_data.accel_x,
+          y: data.sensor_data.accel_y,
+          z: 0, 
+        },
+        yawRate: data.sensor_data.yaw_rate,
+      });
+
+      const modeStr = data.inference_mode.toLowerCase();
+      if (modeStr === InferenceMode.LOCAL.toLowerCase()) {
+        setInferenceMode(InferenceMode.LOCAL);
+      } else if (modeStr === InferenceMode.CLOUD.toLowerCase()) {
+        setInferenceMode(InferenceMode.CLOUD);
+      }
+
+      setVehicleControls({
+        steeringAngle: data.vehicle_controls.steering * 45, 
+        throttle: data.vehicle_controls.throttle * 100, 
+        brake: 0, 
+      });
+
+      setImage1Src(data.image1_base64 ? `data:image/jpeg;base64,${data.image1_base64}` : PLACEHOLDER_IMAGE_SRC);
+      setImage2Src(data.image2_base64 ? `data:image/jpeg;base64,${data.image2_base64}` : PLACEHOLDER_IMAGE_SRC);
+
+      if (data.energy_used_wh !== null) {
+        setEnergyUsage(data.energy_used_wh);
+      }
+
+      if (data.data_transit_time_to_server_ms !== null) {
+        setServerCommTime(data.data_transit_time_to_server_ms);
+      }
+
+    } catch (error) {
+      console.error("Failed to fetch data:", error);
+      setConnectionStatus("Error");
+      
+      // Handle retry logic
+      if (retryAttempts < MAX_RETRY_ATTEMPTS) {
+        setRetryAttempts(prev => prev + 1);
+        setConnectionStatus("Disconnected");
+        console.log(`Retry attempt ${retryAttempts + 1}/${MAX_RETRY_ATTEMPTS} in ${RETRY_DELAY / 1000} seconds...`);
+      } else {
+        console.error("Maximum retry attempts reached. Please refresh the page to try again.");
+        setConnectionStatus("Error");
+      }
+    }
+  };
+
+  const startPolling = () => {
+    // Initial fetch
+    setConnectionStatus("Connecting");
+    fetchData();
+    
+    // Set up polling interval
+    pollingIntervalId.current = window.setInterval(() => {
+      fetchData();
+    }, POLLING_INTERVAL);
+  };
+
+  const stopPolling = () => {
+    if (pollingIntervalId.current) {
+      clearInterval(pollingIntervalId.current);
+      pollingIntervalId.current = null;
+    }
+  }; 
 
   useEffect(() => {
-    connectWebSocket();
+    startPolling();
     return () => {
-      if (reconnectTimeoutId.current) {
-        clearTimeout(reconnectTimeoutId.current);
-      }
-      if (ws.current) {
-        console.log("Closing WebSocket connection on component unmount.");
-        ws.current.onclose = null; 
-        ws.current.close();
-      }
+      stopPolling();
     };
-  }, [connectWebSocket]);
+  }, []); // Empty dependency array
 
 
   const handleQuit = () => {
@@ -213,7 +243,7 @@ const App: React.FC = () => {
   };
   
   const getStatusColor = () => {
-    switch (webSocketStatus) {
+    switch (connectionStatus) {
       case "Connected": return "text-green-400";
       case "Connecting": return "text-yellow-400";
       case "Disconnected": return "text-red-500";
@@ -290,7 +320,7 @@ const App: React.FC = () => {
             />
             <InfoPanelItem
               label="Connection Status"
-              value={webSocketStatus}
+              value={connectionStatus}
               valueClassName={getStatusColor()}
             />
             <div className="flex justify-between items-center">
