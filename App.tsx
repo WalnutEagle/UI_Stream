@@ -120,15 +120,19 @@ const App: React.FC = () => {
     setActiveCameraView(prev => prev === 'front_rgb' ? 'front_depth' : 'front_rgb');
   };
 
-  const handleQuit = () => {
+  // const handleQuit = () => {
+  //   console.log("Attempting to close window...");
+  //   // Note: window.close() may not work in all browser contexts due to security restrictions.
+  //   // It typically only works for windows opened by script.
+  //   if (window.opener) {
+  //       window.close();
+  //   } else {
+  //       alert("Unable to automatically close this tab. Please close it manually.");
+  //   }
+  // };
+    const handleQuit = () => {
     console.log("Attempting to close window...");
-    // Note: window.close() may not work in all browser contexts due to security restrictions.
-    // It typically only works for windows opened by script.
-    if (window.opener) {
-        window.close();
-    } else {
-        alert("Unable to automatically close this tab. Please close it manually.");
-    }
+    window.close();
   };
 
   // Image sources
