@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { InferenceMode, Waypoint, VehicleSensorData, VehicleControlState } from './types';
 import { DataDisplayCard } from './components/DataDisplayCard';
@@ -26,7 +25,7 @@ const SwapCamerasIcon: React.FC<{ className?: string }> = ({ className }) => (
 );
 
 
-const WS_URL = "wss://runthis-coops-767192.apps.shift.nerc.mghpcc.org/ws/ui_updates";
+const WS_URL = "wss://run-coops-767192.apps.shift.nerc.mghpcc.org/api/ui_updates";
 const RECONNECT_DELAY = 5000; // 5 seconds
 const PLACEHOLDER_IMAGE_SRC = "data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22800%22%20height%3D%22450%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20800%20450%22%3E%3Crect%20fill%3D%22%234A5568%22%20width%3D%22800%22%20height%3D%22450%22%2F%3E%3Ctext%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22sans-serif%22%20font-size%3D%2230%22%20dy%3D%2210.5%22%20font-weight%3D%22bold%22%20x%3D%2250%25%22%20y%3D%2250%25%22%20text-anchor%3D%22middle%22%3ENo%20Signal%3C%2Ftext%3E%3C%2Fsvg%3E";
 
@@ -114,24 +113,8 @@ const App: React.FC = () => {
     };
 
     ws.current.onmessage = (event) => {
-      const receivedTimestamp = new Date().toISOString();
       try {
-        const rawData = event.data as string;
-        const data = JSON.parse(rawData) as WebSocketMessage;
-
-        // Detailed logging for image data
-        if (data.hasOwnProperty('image1_base64')) {
-            console.log(`[${receivedTimestamp}] WS Data: image1_base64 is ${data.image1_base64 === null ? 'null' : `a string (length: ${data.image1_base64?.length}, first 50 chars: ${data.image1_base64?.substring(0,50)}...)`}`);
-        } else {
-            console.log(`[${receivedTimestamp}] WS Data: image1_base64 field is missing from message.`);
-        }
-        
-        if (data.hasOwnProperty('image2_base64')) {
-            console.log(`[${receivedTimestamp}] WS Data: image2_base64 is ${data.image2_base64 === null ? 'null' : `a string (length: ${data.image2_base64?.length}, first 50 chars: ${data.image2_base64?.substring(0,50)}...)`}`);
-        } else {
-            console.log(`[${receivedTimestamp}] WS Data: image2_base64 field is missing from message.`);
-        }
-        // End of detailed logging for image data
+        const data = JSON.parse(event.data as string) as WebSocketMessage;
 
         if (data.predicted_waypoints) {
           setPredictedWaypoints(data.predicted_waypoints.map(wp => [wp.X, wp.Y]));
@@ -179,15 +162,12 @@ const App: React.FC = () => {
         }
 
       } catch (error) {
-        console.error(`[${receivedTimestamp}] Failed to parse WebSocket message or update state:`, error);
-         if (error instanceof SyntaxError && typeof event.data === 'string') {
-            console.error(`[${receivedTimestamp}] Raw data that caused parsing error:`, (event.data as string).substring(0, 500) + ((event.data as string).length > 500 ? "..." : ""));
-        }
+        console.error("Failed to parse WebSocket message or update state:", error);
       }
     };
 
-    ws.current.onerror = (event: Event) => { // Explicitly type event as Event
-      console.error("WebSocket connection error. The event object itself provides limited information. Please check the browser's main console or Network tab for more specific details about why the connection might have failed (e.g., server not reachable, incorrect URL, CORS issues). WebSocket Event object:", event);
+    ws.current.onerror = (error) => {
+      console.error("WebSocket Error:", error);
       setWebSocketStatus("Error");
     };
 
@@ -223,9 +203,10 @@ const App: React.FC = () => {
     if (window.opener) {
         window.close();
     } else {
-        const newWindow = window.open('', '_self'); 
+        // Try to close, but browsers might block this if not opened by script
+        const newWindow = window.open('', '_self'); // Try to re-target self
         newWindow?.close();
-        if (!newWindow?.closed) { 
+        if (!newWindow?.closed) { // Check if it actually closed
              alert("The application attempted to close this tab. If it's still open, please close it manually.");
         }
     }
@@ -247,7 +228,7 @@ const App: React.FC = () => {
   
   const currentFeedSrc = displayDepthView ? image2Src : image1Src;
   const currentFeedAlt = displayDepthView ? "Depth Camera Feed" : "RGB Camera Feed";
-  // const currentFeedTitle = displayDepthView ? "Depth View" : "RGB View"; // Title on image overlay removed for now
+  const currentFeedTitle = displayDepthView ? "Depth View" : "RGB View";
   const switchButtonText = displayDepthView ? "Switch to RGB View" : "Switch to Depth View";
 
   return (
@@ -279,6 +260,7 @@ const App: React.FC = () => {
 
         <div className="lg:col-span-1 flex flex-col gap-4 sm:gap-6">
           <DataDisplayCard title="Real World Car Implementation" className="flex-grow flex flex-col">
+            {/* ImageView removed from here */}
             <div className="mt-auto pt-3 border-t border-gray-700"> 
               <InfoPanelItem
                 label="Energy Usage"
@@ -321,6 +303,7 @@ const App: React.FC = () => {
             <ImageView 
                 src={currentFeedSrc} 
                 alt={currentFeedAlt} 
+                // title={currentFeedTitle}
                 className="min-h-[200px] flex-shrink-0 mb-3" 
             />
             <StyledButton
@@ -344,3 +327,4 @@ const App: React.FC = () => {
 };
 
 export default App;
+
