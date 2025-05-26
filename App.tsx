@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { InferenceMode, Waypoint, VehicleSensorData, VehicleControlState } from './types';
 import { DataDisplayCard } from './components/DataDisplayCard';
 import { InfoPanelItem } from './components/InfoPanelItem';
@@ -9,45 +9,81 @@ import { CurrentTime } from './components/CurrentTime';
 import { ImageView } from './components/ImageView';
 import { SteeringThrottleDisplay } from './components/SteeringThrottleDisplay';
 import { ModelIcon } from './components/ModelIcon';
-import { LightningBoltIcon } from './components/LightningBoltIcon'; // New Icon
+import { LightningBoltIcon } from './components/LightningBoltIcon';
 
-
-// Icons for buttons (simple SVGs)
-const SwitchCameraIcon: React.FC = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-  </svg>
-);
-
+// Icons
 const QuitIcon: React.FC = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
     <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
   </svg>
 );
 
+const SwapCamerasIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className || "w-5 h-5"}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+  </svg>
+);
+
+
+const WS_URL = "wss://runthis-coops-767192.apps.shift.nerc.mghpcc.org/ws/ui_updates";
+const RECONNECT_DELAY = 5000; // 5 seconds
+const PLACEHOLDER_IMAGE_SRC = "data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22800%22%20height%3D%22450%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20800%20450%22%3E%3Crect%20fill%3D%22%234A5568%22%20width%3D%22800%22%20height%3D%22450%22%2F%3E%3Ctext%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22sans-serif%22%20font-size%3D%2230%22%20dy%3D%2210.5%22%20font-weight%3D%22bold%22%20x%3D%2250%25%22%20y%3D%2250%25%22%20text-anchor%3D%22middle%22%3ENo%20Signal%3C%2Ftext%3E%3C%2Fsvg%3E";
+
+
+type WebSocketStatus = "Connecting" | "Connected" | "Disconnected" | "Error";
+
+interface WebSocketMessage {
+  predicted_waypoints: Array<{ X: number; Y: number }> | null;
+  sensor_data: {
+    gps_lat: number;
+    gps_lon: number;
+    altitude: number;
+    velocity: number;
+    accel_x: number;
+    accel_y: number;
+    yaw_rate: number;
+  };
+  inference_mode: string;
+  vehicle_controls: {
+    steering: number;
+    throttle: number;
+  };
+  image1_base64: string | null;
+  unique_id_image1: string | null;
+  image2_base64: string | null;
+  unique_id_image2: string | null;
+  energy_used_wh: number | null;
+  timestamp_car_sent_utc: string;
+  timestamp_server_received_utc: string | null;
+  data_transit_time_to_server_ms: number | null;
+}
 
 const App: React.FC = () => {
   // System Information State
-  const [modelName, setModelName] = useState<string>('GeminiDrive PilotNet v3.1');
-  const [gpuInfo, setGpuInfo] = useState<string>('NVIDIA Jetson AGX Orin');
-  const [serverCommTime, setServerCommTime] = useState<number>(28); // ms
-  const [serverResponseTime, setServerResponseTime] = useState<number>(120); // ms
+  const [modelName] = useState<string>('GeminiDrive PilotNet v3.1');
+  const [gpuInfo] = useState<string>('NVIDIA Jetson AGX Orin');
+  const [serverCommTime, setServerCommTime] = useState<number>(0);
+  const [serverResponseTime] = useState<number>(0); 
   const [predictedWaypoints, setPredictedWaypoints] = useState<Waypoint[]>([]);
 
   // Sensor Data State
   const [sensorData, setSensorData] = useState<VehicleSensorData>({
-    gps: { lat: 34.0522, lon: -118.2437, altitude: 70 },
+    gps: { lat: 0, lon: 0, altitude: 0 },
     velocity: 0,
     acceleration: { x: 0, y: 0, z: 0 },
     yawRate: 0,
   });
-  const [energyUsage, setEnergyUsage] = useState<number>(75.0); // New state for energy usage
+  const [energyUsage, setEnergyUsage] = useState<number>(0);
 
   // UI State
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [inferenceMode, setInferenceMode] = useState<InferenceMode>(InferenceMode.CLOUD);
-  const [activeCameraView, setActiveCameraView] = useState<'front_rgb' | 'front_depth'>('front_rgb');
-
+  const [image1Src, setImage1Src] = useState<string>(PLACEHOLDER_IMAGE_SRC);
+  const [image2Src, setImage2Src] = useState<string>(PLACEHOLDER_IMAGE_SRC);
+  const [displayDepthView, setDisplayDepthView] = useState<boolean>(false); // false = RGB (image1), true = Depth (image2)
+  
+  const [webSocketStatus, setWebSocketStatus] = useState<WebSocketStatus>("Connecting");
+  const ws = useRef<WebSocket | null>(null);
+  const reconnectTimeoutId = useRef<number | null>(null);
 
   // Vehicle Control State
   const [vehicleControls, setVehicleControls] = useState<VehicleControlState>({
@@ -55,98 +91,155 @@ const App: React.FC = () => {
     throttle: 0,
     brake: 0,
   });
-  
-  const generateRandomWaypoints = useCallback(() => {
-    const numWaypoints = Math.floor(Math.random() * 5) + 3; // 3 to 7 waypoints
-    const newWaypoints: Waypoint[] = [];
-    for (let i = 0; i < numWaypoints; i++) {
-      const x = parseFloat((Math.random() * 20).toFixed(2)); // Example range for x
-      const y = parseFloat((Math.random() * 2).toFixed(3));  // Example range for y
-      newWaypoints.push([x, y]);
+
+  const connectWebSocket = useCallback(() => {
+    if (reconnectTimeoutId.current) {
+      clearTimeout(reconnectTimeoutId.current);
+      reconnectTimeoutId.current = null;
     }
-    setPredictedWaypoints(newWaypoints);
-  }, []); // Dependencies removed as waypoints are now abstract
 
+    if (ws.current && ws.current.readyState !== WebSocket.CLOSED) {
+        console.log("WebSocket already open or connecting.");
+        return;
+    }
+    
+    setWebSocketStatus("Connecting");
+    console.log("Attempting to connect WebSocket...");
+    ws.current = new WebSocket(WS_URL);
 
-  // Simulate data updates
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setServerCommTime(Math.floor(Math.random() * (45 - 15 + 1)) + 15);
-      setServerResponseTime(Math.floor(Math.random() * (250 - 80 + 1)) + 80);
+    ws.current.onopen = () => {
+      console.log("WebSocket Connected");
+      setWebSocketStatus("Connected");
+    };
 
-      setSensorData(prev => ({
-        ...prev,
-        gps: {
-          lat: parseFloat((prev.gps.lat + (Math.random() - 0.5) * 0.0001).toFixed(6)),
-          lon: parseFloat((prev.gps.lon + (Math.random() - 0.5) * 0.0001).toFixed(6)),
-          altitude: parseFloat((prev.gps.altitude + (Math.random() - 0.5) * 0.5).toFixed(1)),
-        },
-        velocity: Math.max(0, Math.min(120, prev.velocity + (Math.random() - 0.45) * 5)),
-        acceleration: {
-          x: parseFloat(((Math.random() - 0.5) * 2).toFixed(2)),
-          y: parseFloat(((Math.random() - 0.5) * 2).toFixed(2)),
-          z: parseFloat(((Math.random() - 0.5) * 0.5).toFixed(2)),
-        },
-        yawRate: parseFloat(((Math.random() - 0.5) * 10).toFixed(1)),
-      }));
+    ws.current.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data as string) as WebSocketMessage;
 
-      setVehicleControls({
-        steeringAngle: parseFloat(((Math.random() - 0.5) * 90).toFixed(1)), // Range -45 to 45
-        throttle: Math.max(0, Math.min(100, Math.floor(Math.random() * 110 -5))), // Range 0 to 100 after clamping
-        brake: Math.random() > 0.8 ? Math.floor(Math.random() * 60) : 0,
-      });
+        if (data.predicted_waypoints) {
+          setPredictedWaypoints(data.predicted_waypoints.map(wp => [wp.X, wp.Y]));
+        } else {
+          setPredictedWaypoints([]);
+        }
+
+        setSensorData({
+          gps: {
+            lat: data.sensor_data.gps_lat,
+            lon: data.sensor_data.gps_lon,
+            altitude: data.sensor_data.altitude,
+          },
+          velocity: data.sensor_data.velocity,
+          acceleration: {
+            x: data.sensor_data.accel_x,
+            y: data.sensor_data.accel_y,
+            z: 0, 
+          },
+          yawRate: data.sensor_data.yaw_rate,
+        });
+
+        const modeStr = data.inference_mode.toLowerCase();
+        if (modeStr === InferenceMode.LOCAL.toLowerCase()) {
+          setInferenceMode(InferenceMode.LOCAL);
+        } else if (modeStr === InferenceMode.CLOUD.toLowerCase()) {
+          setInferenceMode(InferenceMode.CLOUD);
+        }
+
+        setVehicleControls({
+          steeringAngle: data.vehicle_controls.steering * 45, 
+          throttle: data.vehicle_controls.throttle * 100, 
+          brake: 0, 
+        });
+
+        setImage1Src(data.image1_base64 ? `data:image/jpeg;base64,${data.image1_base64}` : PLACEHOLDER_IMAGE_SRC);
+        setImage2Src(data.image2_base64 ? `data:image/jpeg;base64,${data.image2_base64}` : PLACEHOLDER_IMAGE_SRC);
+
+        if (data.energy_used_wh !== null) {
+          setEnergyUsage(data.energy_used_wh);
+        }
+
+        if (data.data_transit_time_to_server_ms !== null) {
+          setServerCommTime(data.data_transit_time_to_server_ms);
+        }
+
+      } catch (error) {
+        console.error("Failed to parse WebSocket message or update state:", error);
+      }
+    };
+
+    ws.current.onerror = (error) => {
+      console.error("WebSocket Error:", error);
+      setWebSocketStatus("Error");
+    };
+
+    ws.current.onclose = () => {
+      console.log("WebSocket Disconnected");
+      if (webSocketStatus !== "Error") setWebSocketStatus("Disconnected"); 
       
-      setEnergyUsage(parseFloat((Math.random() * (500 - 50) + 50).toFixed(1))); // Simulate energy usage 50W-500W
-
-    }, 2000); // Update every 2 seconds
-    return () => clearInterval(interval);
-  }, []);
+      if (reconnectTimeoutId.current) {
+        clearTimeout(reconnectTimeoutId.current);
+      }
+      console.log(`Attempting to reconnect in ${RECONNECT_DELAY / 1000} seconds...`);
+      reconnectTimeoutId.current = window.setTimeout(connectWebSocket, RECONNECT_DELAY);
+    };
+  }, [webSocketStatus]); 
 
   useEffect(() => {
-    generateRandomWaypoints(); // Generate initial waypoints
-    const waypointInterval = setInterval(generateRandomWaypoints, 5000); // New waypoints every 5s
-    return () => clearInterval(waypointInterval);
-  }, [generateRandomWaypoints]); // generateRandomWaypoints is memoized
+    connectWebSocket();
+    return () => {
+      if (reconnectTimeoutId.current) {
+        clearTimeout(reconnectTimeoutId.current);
+      }
+      if (ws.current) {
+        console.log("Closing WebSocket connection on component unmount.");
+        ws.current.onclose = null; 
+        ws.current.close();
+      }
+    };
+  }, [connectWebSocket]);
 
-  // const toggleInferenceMode = () => {
-  //   setInferenceMode(prev => prev === InferenceMode.CLOUD ? InferenceMode.LOCAL : InferenceMode.CLOUD);
-  // };
-  
-  const toggleCameraView = () => {
-    setActiveCameraView(prev => prev === 'front_rgb' ? 'front_depth' : 'front_rgb');
-  };
 
   const handleQuit = () => {
     console.log("Attempting to close window...");
-    // Note: window.close() may not work in all browser contexts due to security restrictions.
-    // It typically only works for windows opened by script using window.open().
     if (window.opener) {
         window.close();
     } else {
-        // Fallback for cases where window.close() is not allowed or fails
-        alert("The application attempted to close this tab. If it's still open, please close it manually.");
+        // Try to close, but browsers might block this if not opened by script
+        const newWindow = window.open('', '_self'); // Try to re-target self
+        newWindow?.close();
+        if (!newWindow?.closed) { // Check if it actually closed
+             alert("The application attempted to close this tab. If it's still open, please close it manually.");
+        }
+    }
+  };
+  
+  const getStatusColor = () => {
+    switch (webSocketStatus) {
+      case "Connected": return "text-green-400";
+      case "Connecting": return "text-yellow-400";
+      case "Disconnected": return "text-red-500";
+      case "Error": return "text-red-700 font-bold";
+      default: return "text-gray-400";
     }
   };
 
-  // Image sources
-  const frontRgbImageSrc = "https://picsum.photos/seed/mainfeed/800/450";
-  const frontDepthImageSrc = "https://picsum.photos/seed/depthfeed/800/450?grayscale&blur=1"; 
-  const auxImageSrc = "https://picsum.photos/seed/auxfeed/400/300"; 
-
-  const currentFrontImageSrc = activeCameraView === 'front_rgb' ? frontRgbImageSrc : frontDepthImageSrc;
-  const frontImageViewTitle = activeCameraView === 'front_rgb' ? "Front RGB Camera View" : "Front Depth Camera View";
-
+  const toggleDisplayedFeed = () => {
+    setDisplayDepthView(prev => !prev);
+  };
+  
+  const currentFeedSrc = displayDepthView ? image2Src : image1Src;
+  const currentFeedAlt = displayDepthView ? "Depth Camera Feed" : "RGB Camera Feed";
+  const currentFeedTitle = displayDepthView ? "Depth View" : "RGB View";
+  const switchButtonText = displayDepthView ? "Switch to RGB View" : "Switch to Depth View";
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 p-4 sm:p-6">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         
-        {/* Column 1: System Info & Sensors */}
         <div className="lg:col-span-1 flex flex-col gap-4 sm:gap-6">
           <DataDisplayCard title="System Status">
             <InfoPanelItem label="Model Name" value={modelName} icon={<ModelIcon />} valueClassName="text-blue-300 font-semibold" />
             <InfoPanelItem label="GPU" value={gpuInfo} valueClassName="text-gray-200" />
-            <InfoPanelItem label="Server Comm Time" value={serverCommTime} unit="ms" valueClassName="text-green-400" />
+            <InfoPanelItem label="Server Comm Time" value={serverCommTime.toFixed(0)} unit="ms" valueClassName="text-green-400" />
             <InfoPanelItem label="Server Response Time" value={serverResponseTime} unit="ms" valueClassName="text-green-400" />
             <div className="pt-2">
                 <h4 className="text-sm text-gray-400 mb-1">Predicted Waypoints</h4>
@@ -165,24 +258,14 @@ const App: React.FC = () => {
           </DataDisplayCard>
         </div>
 
-        {/* Column 2: Camera Control & Aux View */}
         <div className="lg:col-span-1 flex flex-col gap-4 sm:gap-6">
-          <StyledButton 
-            onClick={toggleCameraView}
-            variant="secondary"
-            icon={<SwitchCameraIcon />}
-            aria-label={activeCameraView === 'front_rgb' ? 'Switch to Depth View' : 'Switch to RGB View'}
-          >
-            {activeCameraView === 'front_rgb' ? 'Switch to Depth View' : 'Switch to RGB View'}
-          </StyledButton>
-          
           <DataDisplayCard title="Real World Car Implementation" className="flex-grow flex flex-col">
-            <ImageView src={auxImageSrc} alt="Auxiliary camera feed" className="min-h-[200px]"/>
-            <div className="mt-3 pt-3 border-t border-gray-700">
+            {/* ImageView removed from here */}
+            <div className="mt-auto pt-3 border-t border-gray-700"> 
               <InfoPanelItem
                 label="Energy Usage"
                 value={energyUsage.toFixed(1)}
-                unit="W"
+                unit="Wh"
                 icon={<LightningBoltIcon className="w-5 h-5 text-yellow-400" />}
                 valueClassName="text-yellow-300"
               />
@@ -198,7 +281,6 @@ const App: React.FC = () => {
           </StyledButton>
         </div>
 
-        {/* Column 3: Main View & Controls */}
         <div className="lg:col-span-1 flex flex-col gap-4 sm:gap-6">
           <DataDisplayCard title="Operational Overview" className="flex-none">
             <InfoPanelItem 
@@ -206,14 +288,32 @@ const App: React.FC = () => {
                 value={inferenceMode} 
                 valueClassName={inferenceMode === InferenceMode.CLOUD ? "text-purple-400" : "text-teal-400"}
             />
+            <InfoPanelItem
+              label="Connection Status"
+              value={webSocketStatus}
+              valueClassName={getStatusColor()}
+            />
             <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-400">Current Time</span>
                 <CurrentTime className="text-gray-100" />
             </div>
           </DataDisplayCard>
 
-          <DataDisplayCard title={frontImageViewTitle} className="flex-grow">
-            <ImageView src={currentFrontImageSrc} alt={frontImageViewTitle} className="min-h-[250px]" />
+          <DataDisplayCard title="Main Camera Feed" className="flex-grow flex flex-col">
+            <ImageView 
+                src={currentFeedSrc} 
+                alt={currentFeedAlt} 
+                // title={currentFeedTitle}
+                className="min-h-[200px] flex-shrink-0 mb-3" 
+            />
+            <StyledButton
+                onClick={toggleDisplayedFeed}
+                variant="secondary"
+                className="w-full mt-auto" 
+                icon={<SwapCamerasIcon className="w-4 h-4"/>}
+            >
+                {switchButtonText}
+            </StyledButton>
           </DataDisplayCard>
 
           <DataDisplayCard title="Vehicle Control Inputs">
