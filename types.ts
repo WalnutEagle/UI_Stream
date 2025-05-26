@@ -1,15 +1,10 @@
-
 export enum InferenceMode {
   LOCAL = "Local",
   CLOUD = "Cloud",
 }
 
-export interface Waypoint {
-  id: string;
-  x: number;
-  y: number;
-  z?: number; // Optional altitude
-}
+// Waypoint is now an array of [x, y] coordinates
+export type Waypoint = [number, number];
 
 export interface GPSSensorData {
   lat: number;

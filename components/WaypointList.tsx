@@ -12,11 +12,11 @@ export const WaypointList: React.FC<WaypointListProps> = ({ waypoints }) => {
   }
   return (
     <ul className="space-y-1 max-h-32 overflow-y-auto text-xs pr-2">
-      {waypoints.map((wp) => (
-        <li key={wp.id} className="flex justify-between p-1 bg-gray-700 rounded-md">
-          <span className="text-gray-300">ID: {wp.id.substring(0,8)}</span>
+      {waypoints.map((wp, index) => (
+        <li key={index} className="flex justify-between p-1 bg-gray-700 rounded-md">
+          <span className="text-gray-300">Waypoint {index + 1}</span>
           <span className="text-cyan-400">
-            X: {wp.x.toFixed(2)}, Y: {wp.y.toFixed(2)}{wp.z !== undefined ? `, Z: ${wp.z.toFixed(2)}` : ''}
+            X: {wp[0].toFixed(2)}, Y: {wp[1].toFixed(2)}
           </span>
         </li>
       ))}

@@ -60,15 +60,12 @@ const App: React.FC = () => {
     const numWaypoints = Math.floor(Math.random() * 5) + 3; // 3 to 7 waypoints
     const newWaypoints: Waypoint[] = [];
     for (let i = 0; i < numWaypoints; i++) {
-      newWaypoints.push({
-        id: `wp-${Date.now()}-${i}`,
-        x: parseFloat((sensorData.gps.lon + (Math.random() - 0.5) * 0.001).toFixed(5)),
-        y: parseFloat((sensorData.gps.lat + (Math.random() - 0.5) * 0.001).toFixed(5)),
-        z: parseFloat((sensorData.gps.altitude + (Math.random() - 0.5) * 5).toFixed(1)),
-      });
+      const x = parseFloat((Math.random() * 20).toFixed(2)); // Example range for x
+      const y = parseFloat((Math.random() * 2).toFixed(3));  // Example range for y
+      newWaypoints.push([x, y]);
     }
     setPredictedWaypoints(newWaypoints);
-  }, [sensorData.gps.lat, sensorData.gps.lon, sensorData.gps.altitude]);
+  }, []); // Dependencies removed as waypoints are now abstract
 
 
   // Simulate data updates
@@ -106,10 +103,9 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    generateRandomWaypoints();
+    generateRandomWaypoints(); // Generate initial waypoints
     const waypointInterval = setInterval(generateRandomWaypoints, 5000); // New waypoints every 5s
     return () => clearInterval(waypointInterval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [generateRandomWaypoints]); // generateRandomWaypoints is memoized
 
   // const toggleInferenceMode = () => {
@@ -120,19 +116,16 @@ const App: React.FC = () => {
     setActiveCameraView(prev => prev === 'front_rgb' ? 'front_depth' : 'front_rgb');
   };
 
-  // const handleQuit = () => {
-  //   console.log("Attempting to close window...");
-  //   // Note: window.close() may not work in all browser contexts due to security restrictions.
-  //   // It typically only works for windows opened by script.
-  //   if (window.opener) {
-  //       window.close();
-  //   } else {
-  //       alert("Unable to automatically close this tab. Please close it manually.");
-  //   }
-  // };
-    const handleQuit = () => {
+  const handleQuit = () => {
     console.log("Attempting to close window...");
-    window.close();
+    // Note: window.close() may not work in all browser contexts due to security restrictions.
+    // It typically only works for windows opened by script using window.open().
+    if (window.opener) {
+        window.close();
+    } else {
+        // Fallback for cases where window.close() is not allowed or fails
+        alert("The application attempted to close this tab. If it's still open, please close it manually.");
+    }
   };
 
   // Image sources
