@@ -1,7 +1,8 @@
 # ───────────────────────
 # 1) Build stage
 # ───────────────────────
-FROM node:18-alpine AS builder
+# FROM node:18-alpine AS builder
+FROM registry.redhat.io/ubi8/nodejs-18:latest AS builder
 WORKDIR /app
 
 # Install deps for build
@@ -15,7 +16,9 @@ RUN npm run build
 # ───────────────────────
 # 2) Production stage
 # ───────────────────────
-FROM node:18-alpine
+
+FROM registry.redhat.io/ubi8/nodejs-18-minimal:latest
+# FROM node:18-alpine
 WORKDIR /app
 
 # Copy only the built assets and prod deps
