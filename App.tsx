@@ -40,7 +40,7 @@ const SettingsIcon: React.FC<{ className?: string }> = ({ className }) => (
 // API configuration
 const API_HOST = import.meta.env.VITE_API_HOST || "run-coops-767192.apps.shift.nerc.mghpcc.org";
 const API_URL = `https://${API_HOST}/api/latest_car_data`;
-const POLLING_INTERVAL = 100; // 100 milliseconds
+const POLLING_INTERVAL = 50; // 50 milliseconds
 const MAX_RETRY_ATTEMPTS = 10;
 const RETRY_DELAY = 5000;
 
