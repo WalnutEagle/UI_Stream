@@ -22,7 +22,7 @@ export const EnergyLineChart: React.FC<EnergyLineChartProps> = ({
 }) => {
   // Keep only the latest maxDataPoints
   const displayData = data.slice(-maxDataPoints);
-  
+  console.log(displayData);
   if (displayData.length < 2) {
     return (
       <div className={`w-full bg-gray-800 rounded-lg p-4 ${className}`} style={{ height: `${height}px` }}>

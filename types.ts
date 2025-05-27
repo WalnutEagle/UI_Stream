@@ -1,6 +1,6 @@
 export enum InferenceMode {
-  LOCAL = "Local",
-  CLOUD = "Cloud",
+  LOCAL = "local",
+  CLOUD = "cloud",
 }
 
 // Waypoint is now an array of [x, y] coordinates

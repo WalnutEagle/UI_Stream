@@ -98,6 +98,9 @@ const App: React.FC = () => {
     acceleration: { x: 0, y: 0, z: 0 },
     yawRate: 0,
   });
+  
+  // Simulated speed state
+  const [simulatedSpeed, setSimulatedSpeed] = useState<number>(0);
   const [energyUsage, setEnergyUsage] = useState<number>(0);
   const [energyHistory, setEnergyHistory] = useState<Array<{ value: number; mode: InferenceMode; timestamp: Date }>>([]);
   const [carTimestamp, setCarTimestamp] = useState<string>('');
@@ -193,17 +196,19 @@ const App: React.FC = () => {
       // Always generate calculated waypoints based on current vehicle state
       const dummyWaypoints: Waypoint[] = [];
       const steering = data.vehicle_controls?.steering || 0;
-      const speed = data.sensor_data?.velocity || 20; // km/h
+      const throttle = data.vehicle_controls?.throttle || 0;
+      // Use throttle to determine forward distance (more throttle = waypoints further ahead)
+      const forwardDistance = Math.max(1.5, throttle * 0.3); // 1.5-3m per waypoint based on throttle
       
       for (let i = 1; i <= 10; i++) {
-        let x = i * 2.5; // 2.5 meters forward per waypoint (25m total)
+        let x = i * forwardDistance;
         let y = 0;
         
         // Add curvature based on steering
         if (Math.abs(steering) > 0.05) {
           // Create a curved path
           const radius = 20 / Math.max(Math.abs(steering), 0.1); // Turning radius
-          const angle = (i * 2.5) / radius; // Arc length to angle
+          const angle = (i * forwardDistance) / radius; // Arc length to angle
           x = radius * Math.sin(angle);
           y = radius * (1 - Math.cos(angle)) * Math.sign(steering);
         }
@@ -217,20 +222,20 @@ const App: React.FC = () => {
       
       setPredictedWaypoints(dummyWaypoints);
 
-      setSensorData({
+      setSensorData(prev => ({
         gps: {
           lat: data.sensor_data.gps_lat,
           lon: data.sensor_data.gps_lon,
           altitude: data.sensor_data.altitude,
         },
-        velocity: data.sensor_data.velocity,
+        velocity: prev.velocity, // Keep simulated velocity, don't use API
         acceleration: {
           x: data.sensor_data.accel_x,
           y: data.sensor_data.accel_y,
           z: 0,
         },
         yawRate: data.sensor_data.yaw_rate,
-      });
+      }));
 
       setGPSHistory(prev => [...prev, {
         lat: data.sensor_data.gps_lat,
@@ -238,12 +243,15 @@ const App: React.FC = () => {
         timestamp: new Date()
       }].slice(-100));
 
+      // Determine the current inference mode
       const modeStr = data.inference_mode.toLowerCase();
+      let currentMode = InferenceMode.CLOUD; // default
       if (modeStr === InferenceMode.LOCAL.toLowerCase()) {
-        setInferenceMode(InferenceMode.LOCAL);
+        currentMode = InferenceMode.LOCAL;
       } else if (modeStr === InferenceMode.CLOUD.toLowerCase()) {
-        setInferenceMode(InferenceMode.CLOUD);
+        currentMode = InferenceMode.CLOUD;
       }
+      setInferenceMode(currentMode);
 
       setVehicleControls({
         steeringAngle: data.vehicle_controls.steering * 45,
@@ -258,7 +266,7 @@ const App: React.FC = () => {
         setEnergyUsage(data.energy_used_wh);
         setEnergyHistory(prev => [...prev, {
           value: data.energy_used_wh,
-          mode: inferenceMode,
+          mode: currentMode, // Use the mode from the current API response
           timestamp: new Date()
         }].slice(-100));
       }
@@ -316,6 +324,38 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('panelVisibility', JSON.stringify(panelVisibility));
   }, [panelVisibility]);
+  
+  // Simulate speed based on throttle
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setSimulatedSpeed(prevSpeed => {
+        // Target speed is 0-13 km/h based on throttle (0-100%)
+        const targetSpeed = (vehicleControls.throttle / 100) * 13;
+        
+        // Smooth acceleration/deceleration
+        const acceleration = 0.5; // km/h per update
+        const diff = targetSpeed - prevSpeed;
+        
+        if (Math.abs(diff) < acceleration) {
+          return targetSpeed;
+        } else if (diff > 0) {
+          return prevSpeed + acceleration;
+        } else {
+          return Math.max(0, prevSpeed - acceleration);
+        }
+      });
+    }, 100); // Update every 100ms
+    
+    return () => clearInterval(interval);
+  }, [vehicleControls.throttle]);
+  
+  // Update sensor data velocity with simulated speed
+  useEffect(() => {
+    setSensorData(prev => ({
+      ...prev,
+      velocity: simulatedSpeed
+    }));
+  }, [simulatedSpeed]);
 
   const handleQuit = () => {
     const newWindow = window.open('', '_self');
