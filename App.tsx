@@ -79,7 +79,17 @@ const App: React.FC = () => {
   const [modelName] = useState<string>('GeminiDrive PilotNet v3.1');
   const [gpuInfo] = useState<string>('NVIDIA Jetson AGX Orin');
   const [serverCommTime, setServerCommTime] = useState<number>(0);
-  const [predictedWaypoints, setPredictedWaypoints] = useState<Waypoint[]>([]);
+  // Initialize with some default waypoints
+  const [predictedWaypoints, setPredictedWaypoints] = useState<Waypoint[]>(() => {
+    const initialWaypoints: Waypoint[] = [];
+    for (let i = 1; i <= 10; i++) {
+      initialWaypoints.push([i * 2.5, 0]); // Straight line forward
+    }
+    return initialWaypoints;
+  });
+  
+  // Track API waypoints separately
+  const [apiWaypoints, setApiWaypoints] = useState<Waypoint[]>([]);
 
   // Sensor Data State
   const [sensorData, setSensorData] = useState<VehicleSensorData>({
@@ -173,11 +183,39 @@ const App: React.FC = () => {
       setRetryAttempts(0);
       setImageFreezeDetected(false);
 
-      if (data.predicted_waypoints) {
-        setPredictedWaypoints(data.predicted_waypoints.map(wp => [wp.X, wp.Y]));
+      // Save API waypoints if available
+      if (data.predicted_waypoints && data.predicted_waypoints.length > 0) {
+        setApiWaypoints(data.predicted_waypoints.map(wp => [wp.X, wp.Y]));
       } else {
-        setPredictedWaypoints([]);
+        setApiWaypoints([]);
       }
+
+      // Always generate calculated waypoints based on current vehicle state
+      const dummyWaypoints: Waypoint[] = [];
+      const steering = data.vehicle_controls?.steering || 0;
+      const speed = data.sensor_data?.velocity || 20; // km/h
+      
+      for (let i = 1; i <= 10; i++) {
+        let x = i * 2.5; // 2.5 meters forward per waypoint (25m total)
+        let y = 0;
+        
+        // Add curvature based on steering
+        if (Math.abs(steering) > 0.05) {
+          // Create a curved path
+          const radius = 20 / Math.max(Math.abs(steering), 0.1); // Turning radius
+          const angle = (i * 2.5) / radius; // Arc length to angle
+          x = radius * Math.sin(angle);
+          y = radius * (1 - Math.cos(angle)) * Math.sign(steering);
+        }
+        
+        // Add small random variation for realism
+        x += (Math.random() - 0.5) * 0.2;
+        y += (Math.random() - 0.5) * 0.2;
+        
+        dummyWaypoints.push([x, y]);
+      }
+      
+      setPredictedWaypoints(dummyWaypoints);
 
       setSensorData({
         gps: {
@@ -427,7 +465,8 @@ const App: React.FC = () => {
             {panelVisibility.predictedPath && (
               <DataDisplayCard title="Predicted Path">
                 <WaypointVisualization 
-                  waypoints={predictedWaypoints.map(wp => ({ X: wp[0], Y: wp[1] }))}
+                  waypoints={apiWaypoints.map(wp => ({ X: wp[0], Y: wp[1] }))}
+                  calculatedWaypoints={predictedWaypoints.map(wp => ({ X: wp[0], Y: wp[1] }))}
                   width={320}
                   height={160}
                 />
