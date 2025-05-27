@@ -1,15 +1,21 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { InferenceMode, Waypoint, VehicleSensorData, VehicleControlState } from './types';
 import { DataDisplayCard } from './components/DataDisplayCard';
 import { InfoPanelItem } from './components/InfoPanelItem';
-import { WaypointList } from './components/WaypointList';
+import { WaypointVisualization } from './components/WaypointVisualization';
 import { StyledButton } from './components/StyledButton';
 import { CurrentTime } from './components/CurrentTime';
-import { ImageView } from './components/ImageView';
+import { ImageViewEnhanced } from './components/ImageViewEnhanced';
 import { SteeringThrottleDisplay } from './components/SteeringThrottleDisplay';
 import { ModelIcon } from './components/ModelIcon';
 import { LightningBoltIcon } from './components/LightningBoltIcon';
+import { EnergyHistogram } from './components/EnergyHistogram';
+import { EnergyLineChart } from './components/EnergyLineChart';
+import { PanelSettings } from './components/PanelSettings';
+import { InferenceModeDisplay } from './components/InferenceModeDisplay';
+import { NetworkLatencyDisplay } from './components/NetworkLatencyDisplay';
+import { GoogleMapDisplay } from './components/GoogleMapDisplay';
+import { GPSTrackingHistory } from './components/GPSTrackingHistory';
 
 // Icons
 const QuitIcon: React.FC = () => (
@@ -24,19 +30,21 @@ const SwapCamerasIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
+const SettingsIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className || "w-5 h-5"}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M10.343 3.94c.09-.542.56-.94 1.11-.94h1.093c.55 0 1.02.398 1.11.94l.149.894c.07.424.384.764.78.93.398.164.855.142 1.205-.108l.737-.527a1.125 1.125 0 011.45.12l.773.774c.39.389.44 1.002.12 1.45l-.527.737c-.25.35-.272.806-.107 1.204.165.397.505.71.93.78l.893.15c.543.09.94.56.94 1.109v1.094c0 .55-.397 1.02-.94 1.11l-.893.149c-.425.07-.765.383-.93.78-.165.398-.143.854.107 1.204l.527.738c.32.447.269 1.06-.12 1.45l-.774.773a1.125 1.125 0 01-1.449.12l-.738-.527c-.35-.25-.806-.272-1.203-.107-.397.165-.71.505-.781.929l-.149.894c-.09.542-.56.94-1.11.94h-1.094c-.55 0-1.019-.398-1.11-.94l-.148-.894c-.071-.424-.384-.764-.781-.93-.398-.164-.854-.142-1.204.108l-.738.527c-.447.32-1.06.269-1.45-.12l-.773-.774a1.125 1.125 0 01-.12-1.45l.527-.737c.25-.35.273-.806.108-1.204-.165-.397-.505-.71-.93-.78l-.894-.15c-.542-.09-.94-.56-.94-1.109v-1.094c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.765-.383.93-.78.165-.398.143-.854-.107-1.204l-.527-.738a1.125 1.125 0 01.12-1.45l.773-.773a1.125 1.125 0 011.45-.12l.737.527c.35.25.807.272 1.204.107.397-.165.71-.505.78-.929l.15-.894z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+  </svg>
+);
 
 // API configuration
 const API_HOST = import.meta.env.VITE_API_HOST || "run-coops-767192.apps.shift.nerc.mghpcc.org";
 const API_URL = `https://${API_HOST}/api/latest_car_data`;
-// Polling interval in milliseconds
-const POLLING_INTERVAL = 15; // 15 milliseconds
-
-// Connection configuration
+const POLLING_INTERVAL = 100; // 100 milliseconds
 const MAX_RETRY_ATTEMPTS = 10;
-const RETRY_DELAY = 5000; // 5 seconds
+const RETRY_DELAY = 5000;
 
 const PLACEHOLDER_IMAGE_SRC = "data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22800%22%20height%3D%22450%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20800%20450%22%3E%3Crect%20fill%3D%22%234A5568%22%20width%3D%22800%22%20height%3D%22450%22%2F%3E%3Ctext%20fill%3D%22rgba(255%2C255%2C255%2C0.7)%22%20font-family%3D%22sans-serif%22%20font-size%3D%2230%22%20dy%3D%2210.5%22%20font-weight%3D%22bold%22%20x%3D%2250%25%22%20y%3D%2250%25%22%20text-anchor%3D%22middle%22%3ENo%20Signal%3C%2Ftext%3E%3C%2Fsvg%3E";
-
 
 type ConnectionStatus = "Connecting" | "Connected" | "Disconnected" | "Error";
 
@@ -66,13 +74,11 @@ interface HTTPMessage {
   data_transit_time_to_server_ms: number | null;
 }
 
-
 const App: React.FC = () => {
   // System Information State
   const [modelName] = useState<string>('GeminiDrive PilotNet v3.1');
   const [gpuInfo] = useState<string>('NVIDIA Jetson AGX Orin');
   const [serverCommTime, setServerCommTime] = useState<number>(0);
-  const [serverResponseTime] = useState<number>(0); 
   const [predictedWaypoints, setPredictedWaypoints] = useState<Waypoint[]>([]);
 
   // Sensor Data State
@@ -83,12 +89,41 @@ const App: React.FC = () => {
     yawRate: 0,
   });
   const [energyUsage, setEnergyUsage] = useState<number>(0);
+  const [energyHistory, setEnergyHistory] = useState<Array<{ value: number; mode: InferenceMode; timestamp: Date }>>([]);
+  const [carTimestamp, setCarTimestamp] = useState<string>('');
+  const [serverTimestamp, setServerTimestamp] = useState<string>('');
+  const [imageIds, setImageIds] = useState<{ image1: string; image2: string }>({ image1: '', image2: '' });
+  const [gpsHistory, setGPSHistory] = useState<Array<{ lat: number; lon: number; timestamp: Date }>>([]);
 
   // UI State
   const [inferenceMode, setInferenceMode] = useState<InferenceMode>(InferenceMode.CLOUD);
   const [image1Src, setImage1Src] = useState<string>(PLACEHOLDER_IMAGE_SRC);
   const [image2Src, setImage2Src] = useState<string>(PLACEHOLDER_IMAGE_SRC);
-  const [displayDepthView, setDisplayDepthView] = useState<boolean>(false); // false = RGB (image1), true = Depth (image2)
+  const [displayDepthView, setDisplayDepthView] = useState<boolean>(false);
+  const [imageFreezeDetected, setImageFreezeDetected] = useState<boolean>(false);
+  const [showSettings, setShowSettings] = useState<boolean>(false);
+  // Load panel visibility from localStorage or use defaults
+  const loadPanelVisibility = () => {
+    const saved = localStorage.getItem('panelVisibility');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error('Failed to parse saved panel visibility:', e);
+      }
+    }
+    return {
+      inferenceMode: true,
+      system: true,
+      sensors: true,
+      energyChart: true,
+      vehicleControls: true,
+      gpsLocation: true,
+      predictedPath: true
+    };
+  };
+
+  const [panelVisibility, setPanelVisibility] = useState(loadPanelVisibility());
   
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("Connecting");
   const pollingIntervalId = useRef<number | null>(null);
@@ -119,7 +154,6 @@ const App: React.FC = () => {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
         },
-        // Handle CORS
         mode: 'cors',
         credentials: 'same-origin'
       });
@@ -130,17 +164,15 @@ const App: React.FC = () => {
 
       const data = await response.json();
       
-      // Validate message format
       if (!isValidHTTPMessage(data)) {
         console.error("Invalid HTTP message format:", data);
         return;
       }
 
-      // Update connection status to Connected on successful fetch
       setConnectionStatus("Connected");
       setRetryAttempts(0);
+      setImageFreezeDetected(false);
 
-      // Process the data same as before
       if (data.predicted_waypoints) {
         setPredictedWaypoints(data.predicted_waypoints.map(wp => [wp.X, wp.Y]));
       } else {
@@ -157,10 +189,16 @@ const App: React.FC = () => {
         acceleration: {
           x: data.sensor_data.accel_x,
           y: data.sensor_data.accel_y,
-          z: 0, 
+          z: 0,
         },
         yawRate: data.sensor_data.yaw_rate,
       });
+
+      setGPSHistory(prev => [...prev, {
+        lat: data.sensor_data.gps_lat,
+        lon: data.sensor_data.gps_lon,
+        timestamp: new Date()
+      }].slice(-100));
 
       const modeStr = data.inference_mode.toLowerCase();
       if (modeStr === InferenceMode.LOCAL.toLowerCase()) {
@@ -170,9 +208,9 @@ const App: React.FC = () => {
       }
 
       setVehicleControls({
-        steeringAngle: data.vehicle_controls.steering * 45, 
-        throttle: data.vehicle_controls.throttle * 100, 
-        brake: 0, 
+        steeringAngle: data.vehicle_controls.steering * 45,
+        throttle: data.vehicle_controls.throttle * 100,
+        brake: 0,
       });
 
       setImage1Src(data.image1_base64 ? `data:image/jpeg;base64,${data.image1_base64}` : PLACEHOLDER_IMAGE_SRC);
@@ -180,34 +218,43 @@ const App: React.FC = () => {
 
       if (data.energy_used_wh !== null) {
         setEnergyUsage(data.energy_used_wh);
+        setEnergyHistory(prev => [...prev, {
+          value: data.energy_used_wh,
+          mode: inferenceMode,
+          timestamp: new Date()
+        }].slice(-100));
       }
 
       if (data.data_transit_time_to_server_ms !== null) {
         setServerCommTime(data.data_transit_time_to_server_ms);
       }
 
+      setCarTimestamp(data.timestamp_car_sent_utc);
+      if (data.timestamp_server_received_utc) {
+        setServerTimestamp(data.timestamp_server_received_utc);
+      }
+
+      if (data.unique_id_image1 || data.unique_id_image2) {
+        setImageIds({
+          image1: data.unique_id_image1 || '',
+          image2: data.unique_id_image2 || ''
+        });
+      }
+
     } catch (error) {
       console.error("Failed to fetch data:", error);
       setConnectionStatus("Error");
       
-      // Handle retry logic
       if (retryAttempts < MAX_RETRY_ATTEMPTS) {
         setRetryAttempts(prev => prev + 1);
         setConnectionStatus("Disconnected");
-        console.log(`Retry attempt ${retryAttempts + 1}/${MAX_RETRY_ATTEMPTS} in ${RETRY_DELAY / 1000} seconds...`);
-      } else {
-        console.error("Maximum retry attempts reached. Please refresh the page to try again.");
-        setConnectionStatus("Error");
       }
     }
   };
 
   const startPolling = () => {
-    // Initial fetch
     setConnectionStatus("Connecting");
     fetchData();
-    
-    // Set up polling interval
     pollingIntervalId.current = window.setInterval(() => {
       fetchData();
     }, POLLING_INTERVAL);
@@ -218,30 +265,25 @@ const App: React.FC = () => {
       clearInterval(pollingIntervalId.current);
       pollingIntervalId.current = null;
     }
-  }; 
+  };
 
   useEffect(() => {
     startPolling();
     return () => {
       stopPolling();
     };
-  }, []); // Empty dependency array
+  }, []);
 
+  // Save panel visibility to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('panelVisibility', JSON.stringify(panelVisibility));
+  }, [panelVisibility]);
 
   const handleQuit = () => {
-    console.log("Attempting to close window...");
-    if (window.opener) {
-        window.close();
-    } else {
-        // Try to close, but browsers might block this if not opened by script
-        const newWindow = window.open('', '_self'); // Try to re-target self
-        newWindow?.close();
-        if (!newWindow?.closed) { // Check if it actually closed
-             alert("The application attempted to close this tab. If it's still open, please close it manually.");
-        }
-    }
+    const newWindow = window.open('', '_self');
+    newWindow?.close();
   };
-  
+
   const getStatusColor = () => {
     switch (connectionStatus) {
       case "Connected": return "text-green-400";
@@ -255,103 +297,164 @@ const App: React.FC = () => {
   const toggleDisplayedFeed = () => {
     setDisplayDepthView(prev => !prev);
   };
+
+  const togglePanel = (panel: keyof typeof panelVisibility) => {
+    setPanelVisibility(prev => ({
+      ...prev,
+      [panel]: !prev[panel]
+    }));
+  };
   
   const currentFeedSrc = displayDepthView ? image2Src : image1Src;
   const currentFeedAlt = displayDepthView ? "Depth Camera Feed" : "RGB Camera Feed";
-  const currentFeedTitle = displayDepthView ? "Depth View" : "RGB View";
-  const switchButtonText = displayDepthView ? "Switch to RGB View" : "Switch to Depth View";
+  const switchButtonText = displayDepthView ? "Switch to RGB" : "Switch to Depth";
 
   return (
-    <div className="min-h-screen bg-gray-900 text-gray-100 p-4 sm:p-6">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-        
-        <div className="lg:col-span-1 flex flex-col gap-4 sm:gap-6">
-          <DataDisplayCard title="System Status">
-            <InfoPanelItem label="Model Name" value={modelName} icon={<ModelIcon />} valueClassName="text-blue-300 font-semibold" />
-            <InfoPanelItem label="GPU" value={gpuInfo} valueClassName="text-gray-200" />
-            <InfoPanelItem label="Server Comm Time" value={serverCommTime.toFixed(0)} unit="ms" valueClassName="text-green-400" />
-            <InfoPanelItem label="Server Response Time" value={serverResponseTime} unit="ms" valueClassName="text-green-400" />
-            <div className="pt-2">
-                <h4 className="text-sm text-gray-400 mb-1">Predicted Waypoints</h4>
-                <WaypointList waypoints={predictedWaypoints} />
+    <div className="min-h-screen bg-gray-900 text-gray-100 p-3">
+      <div className="max-w-screen-2xl mx-auto">
+        {/* Header Bar */}
+        <div className="flex items-center justify-between mb-3 px-2">
+          <h1 className="text-xl font-bold text-gray-100">Vehicle Telemetry Dashboard</h1>
+          <div className="flex items-center gap-6">
+            
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <LightningBoltIcon className="w-4 h-4 text-yellow-400" />
+                <span className="text-sm font-semibold text-yellow-300">{energyUsage.toFixed(1)} Wh</span>
+              </div>
+              <CurrentTime className="text-gray-400 text-sm" />
+              <span className={`text-sm ${getStatusColor()}`}>{connectionStatus}</span>
+              <button
+                onClick={() => setShowSettings(true)}
+                className="text-gray-400 hover:text-white transition-colors p-1 rounded hover:bg-gray-700"
+                title="Settings"
+              >
+                <SettingsIcon className="w-5 h-5" />
+              </button>
             </div>
-          </DataDisplayCard>
-
-          <DataDisplayCard title="Sensor Data Output">
-            <InfoPanelItem label="GPS Lat" value={sensorData.gps.lat.toFixed(5)} unit="°" />
-            <InfoPanelItem label="GPS Lon" value={sensorData.gps.lon.toFixed(5)} unit="°" />
-            <InfoPanelItem label="Altitude" value={sensorData.gps.altitude.toFixed(1)} unit="m" />
-            <InfoPanelItem label="Velocity" value={sensorData.velocity.toFixed(1)} unit="km/h" valueClassName="text-yellow-400" />
-            <InfoPanelItem label="Accel X" value={sensorData.acceleration.x.toFixed(2)} unit="m/s²" />
-            <InfoPanelItem label="Accel Y" value={sensorData.acceleration.y.toFixed(2)} unit="m/s²" />
-            <InfoPanelItem label="Yaw Rate" value={sensorData.yawRate.toFixed(1)} unit="°/s" />
-          </DataDisplayCard>
+          </div>
         </div>
 
-        <div className="lg:col-span-1 flex flex-col gap-4 sm:gap-6">
-          <DataDisplayCard title="Real World Car Implementation" className="flex-grow flex flex-col">
-            {/* ImageView removed from here */}
-            <div className="mt-auto pt-3 border-t border-gray-700"> 
-              <InfoPanelItem
-                label="Energy Usage"
-                value={energyUsage.toFixed(1)}
-                unit="Wh"
-                icon={<LightningBoltIcon className="w-5 h-5 text-yellow-400" />}
-                valueClassName="text-yellow-300"
-              />
+        {/* Main grid */}
+        <div className="grid grid-cols-12 gap-3">
+          {/* Left Sidebar - 2 columns - extends full height */}
+          <div className="col-span-12 lg:col-span-2">
+            <div className="space-y-3">
+              {panelVisibility.inferenceMode && <InferenceModeDisplay mode={inferenceMode} />}
+              {panelVisibility.system && (
+                <DataDisplayCard title="System" className="text-xs">
+                  <InfoPanelItem label="Model" value={modelName} valueClassName="text-blue-300 text-xs" />
+                  <InfoPanelItem label="GPU" value={gpuInfo} valueClassName="text-xs" />
+                  <NetworkLatencyDisplay latency={serverCommTime} className="mt-2" />
+                </DataDisplayCard>
+              )}
+              {panelVisibility.sensors && (
+                <DataDisplayCard title="Sensors" className="text-xs">
+                  <InfoPanelItem label="Speed" value={sensorData.velocity.toFixed(1)} unit="km/h" valueClassName="text-yellow-400 text-sm font-bold" />
+                  <InfoPanelItem label="Accel X/Y" value={`${sensorData.acceleration.x.toFixed(1)}/${sensorData.acceleration.y.toFixed(1)}`} unit="m/s²" valueClassName="text-xs" />
+                  <InfoPanelItem label="Yaw Rate" value={sensorData.yawRate.toFixed(1)} unit="°/s" valueClassName="text-xs" />
+                </DataDisplayCard>
+              )}
             </div>
-          </DataDisplayCard>
-          
-          <StyledButton 
-            onClick={handleQuit} 
-            variant="danger"
-            icon={<QuitIcon />}
-          >
-            Quit Simulation
-          </StyledButton>
-        </div>
+          </div>
 
-        <div className="lg:col-span-1 flex flex-col gap-4 sm:gap-6">
-          <DataDisplayCard title="Operational Overview" className="flex-none">
-            <InfoPanelItem 
-                label="Inference Mode" 
-                value={inferenceMode} 
-                valueClassName={inferenceMode === InferenceMode.CLOUD ? "text-purple-400" : "text-teal-400"}
-            />
-            <InfoPanelItem
-              label="Connection Status"
-              value={connectionStatus}
-              valueClassName={getStatusColor()}
-            />
-            <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-400">Current Time</span>
-                <CurrentTime className="text-gray-100" />
+          {/* Main Camera View - 6 columns */}
+          <div className="col-span-12 lg:col-span-6 space-y-3">
+             {/* Energy Chart above camera */}
+            {panelVisibility.energyChart && (
+              <DataDisplayCard title="Energy Consumption Over Time" className="p-3">
+                <EnergyLineChart data={energyHistory} height={180} />
+              </DataDisplayCard>
+            )}
+            {/* <DataDisplayCard title="Main Camera Feed - 480p HD" className="h-full"> */}
+              <DataDisplayCard title="Main Camera Feed - 480p HD">
+              <div className="relative" style={{ minHeight: '480px' }}>
+                <ImageViewEnhanced 
+                  src={currentFeedSrc} 
+                  alt={currentFeedAlt}
+                  imageId={displayDepthView ? imageIds.image2 : imageIds.image1}
+                  className="h-full"
+                  onFreezeDetected={() => setImageFreezeDetected(true)}
+                />
+              </div>
+              <div className="flex gap-2 mt-3">
+                <StyledButton
+                  onClick={toggleDisplayedFeed}
+                  variant="secondary"
+                  className="flex-1"
+                  icon={<SwapCamerasIcon className="w-4 h-4"/>}
+                >
+                  {switchButtonText}
+                </StyledButton>
+                {imageFreezeDetected && (
+                  <StyledButton
+                    onClick={() => {
+                      setImageFreezeDetected(false);
+                      fetchData();
+                    }}
+                    variant="danger"
+                    className="flex-1"
+                  >
+                    Refresh Feed
+                  </StyledButton>
+                )}
+              </div>
+            </DataDisplayCard>
+          </div>
+
+          {/* Right Side - 4 columns */}
+          <div className="col-span-12 lg:col-span-4 space-y-3">
+            {/* Energy Consumption Over Time - full width of right column */}
+            {panelVisibility.vehicleControls && (
+              <DataDisplayCard title="Vehicle Controls">
+                <SteeringThrottleDisplay controls={vehicleControls} />
+              </DataDisplayCard>
+            )}
+            
+            <div className="grid grid-cols-2 gap-3">
+              
+              {panelVisibility.gpsLocation && (
+                <DataDisplayCard title="GPS Location" className="col-span-2">
+                  <GoogleMapDisplay 
+                    latitude={sensorData.gps.lat}
+                    longitude={sensorData.gps.lon}
+                    altitude={sensorData.gps.altitude}
+                  />
+                </DataDisplayCard>
+              )}
             </div>
-          </DataDisplayCard>
 
-          <DataDisplayCard title="Main Camera Feed" className="flex-grow flex flex-col">
-            <ImageView 
-                src={currentFeedSrc} 
-                alt={currentFeedAlt} 
-                // title={currentFeedTitle}
-                className="min-h-[200px] flex-shrink-0 mb-3" 
-            />
-            <StyledButton
-                onClick={toggleDisplayedFeed}
-                variant="secondary"
-                className="w-full mt-auto" 
-                icon={<SwapCamerasIcon className="w-4 h-4"/>}
+            {panelVisibility.predictedPath && (
+              <DataDisplayCard title="Predicted Path">
+                <WaypointVisualization 
+                  waypoints={predictedWaypoints.map(wp => ({ X: wp[0], Y: wp[1] }))}
+                  width={320}
+                  height={160}
+                />
+              </DataDisplayCard>
+            )}
+
+           
+
+            {/* <StyledButton 
+              onClick={handleQuit} 
+              variant="danger"
+              icon={<QuitIcon />}
+              className="w-full"
             >
-                {switchButtonText}
-            </StyledButton>
-          </DataDisplayCard>
-
-          <DataDisplayCard title="Vehicle Control Inputs">
-            <SteeringThrottleDisplay controls={vehicleControls} />
-          </DataDisplayCard>
+              Quit Simulation
+            </StyledButton> */}
+          </div>
         </div>
-
       </div>
+      
+      {/* Panel Settings Modal */}
+      <PanelSettings
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        panelVisibility={panelVisibility}
+        onTogglePanel={togglePanel}
+      />
     </div>
   );
 };

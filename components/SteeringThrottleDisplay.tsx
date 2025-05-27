@@ -27,16 +27,7 @@ export const SteeringThrottleDisplay: React.FC<SteeringThrottleDisplayProps> = (
           unit="%"
           showValue={showValues}
         />
-        <div className="mx-1 sm:mx-2 order-first sm:order-none mb-2 sm:mb-0 self-center"> {/* Button container */}
-          <StyledButton 
-            onClick={toggleShowValues} 
-            variant="ghost" 
-            className="p-1.5 text-sm"
-            aria-label={showValues ? "Hide numerical values" : "Show numerical values"}
-          >
-            {showValues ? <EyeSlashIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
-          </StyledButton>
-        </div>
+      
         <SteeringWheelGauge 
           steeringAngle={controls.steeringAngle} 
           maxAngle={45} 
